@@ -75,16 +75,17 @@ def normalize_dataframe(df):
     
     # 2. 定义同义词映射表 {标准名: [可能的别名]}
     alias_map = {
-        'time': ['t', 'Time', 'sec'],
-        'lat': ['Latitude', 'Lat'],
-        'lon': ['Longitude', 'Lon'],
-        'h':   ['Height', 'Alt', 'H'],
+        'time': ['t', 'Time', 'sec', 'time_s'],
+        'lat': ['Latitude', 'Lat', 'lat_deg'],
+        'lon': ['Longitude', 'Lon', 'lon_deg'],
+        'h':   ['Height', 'Alt', 'H', 'alt_m'],
         'vn':  ['vN', 'VN', 'vel_n'],
         've':  ['vE', 'VE', 'vel_e'],
         'vd':  ['vD', 'VD', 'vel_d'],
-        'roll': ['Roll', 'phi'],
-        'pitch':['Pitch', 'theta'],
-        'yaw':  ['Yaw', 'psi'],
+        'roll': ['Roll', 'phi', 'roll_deg'],
+        'pitch':['Pitch', 'theta', 'pitch_deg'],
+        'yaw':  ['Yaw', 'psi', 'yaw_deg'],
+        'drift': ['drift_m', 'Drift'],
         # 零偏别名
         'bg_x': ['ebX', 'wb_x', 'gyro_bias_x'],
         'bg_y': ['ebY', 'wb_y', 'gyro_bias_y'],

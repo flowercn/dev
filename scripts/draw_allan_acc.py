@@ -4,11 +4,10 @@ import math
 import os
 
 # --- 配置 ---
-FILE_PATH = "/home/v/dev/hybrid_ins_cpp/build/fog3h.csv" # 支持相对或绝对路径
-FS = 400.0                 # 采样率 (Hz)
+FILE_PATH = "/home/v/dev/hybrid_ins_cpp/fog3h.csv"
+FS = 400.0  # 采样率 (Hz)
 
 def read_data(path):
-    # 路径检查
     if not os.path.exists(path):
         if os.path.exists(os.path.basename(path)):
             path = os.path.basename(path)
@@ -21,12 +20,10 @@ def read_data(path):
     
     try:
         with open(path, 'r') as f:
-            # 预览第一行用于Debug
             sample_line = f.readline()
             f.seek(0)
             if not sample_line: return None
             
-            # 判断分隔符 (你的转换脚本生成的是逗号分隔)
             use_comma = ',' in sample_line
             delimiter_name = "Comma" if use_comma else "Whitespace"
             print(f"[Debug] Format: {delimiter_name}, Preview: {sample_line.strip()[:50]}...")
@@ -36,36 +33,29 @@ def read_data(path):
             for i, line in enumerate(f):
                 line = line.strip()
                 if not line: continue
-                # 跳过可能存在的表头
                 if line[0].isalpha() or line.startswith('%') or line.startswith('#'): continue
 
                 parts = line.split(',') if use_comma else line.split()
                 
-                # --- 核心适配逻辑 ---
-                # 情况A: 6列数据 (gx, gy, gz, ax, ay, az) -> 你的情况
-                # 情况B: 7列数据 (t, gx, gy, gz, ax, ay, az) -> 以前的情况
-                
                 try:
                     if len(parts) == 6:
-                        # 无时间戳，直接读前3列
-                        gx = float(parts[0])
-                        gy = float(parts[1])
-                        gz = float(parts[2])
+                        # 无时间戳: gx, gy, gz, ax, ay, az
+                        ax = float(parts[3])
+                        ay = float(parts[4])
+                        az = float(parts[5])
                     elif len(parts) >= 7:
-                        # 有时间戳，读第2,3,4列
-                        gx = float(parts[1])
-                        gy = float(parts[2])
-                        gz = float(parts[3])
+                        # 有时间戳: t, gx, gy, gz, ax, ay, az
+                        ax = float(parts[4])
+                        ay = float(parts[5])
+                        az = float(parts[6])
                     else:
-                        continue # 列数不够，跳过
+                        continue
 
-                    # --- 单位转换 ---
-                    # 你的CSV里加速度是 9.74 (m/s^2)，说明陀螺通常是 rad/s
-                    # Allan 方差图标准单位是 deg/h，计算需要先转成 deg/s
-                    # 1 rad/s = (180/pi) deg/s
-                    scale_factor = 180.0 / math.pi
+                    # 单位: m/s^2 -> ug (微g)
+                    # 1 m/s^2 = 1/9.8 g = 1e6/9.8 ug
+                    scale_factor = 1e6 / 9.80665
                     
-                    data.append([gx * scale_factor, gy * scale_factor, gz * scale_factor])
+                    data.append([ax * scale_factor, ay * scale_factor, az * scale_factor])
                     success_count += 1
                     
                 except ValueError:
@@ -97,8 +87,8 @@ def simple_allan_variance(data, fs):
         
         n_sub = int(N // m)
         data_sub = data[:n_sub*m].reshape((n_sub, m))
-        avg_rates = np.mean(data_sub, axis=1) # 求平均速率
-        diffs = np.diff(avg_rates)            # 相邻差分
+        avg_rates = np.mean(data_sub, axis=1)
+        diffs = np.diff(avg_rates)
         var = 0.5 * np.mean(diffs**2)
         dev = np.sqrt(var)
         
@@ -115,60 +105,68 @@ def main():
         print("[Fatal] No data loaded.")
         return
 
-    titles = ['Gyro X', 'Gyro Y', 'Gyro Z']
+    titles = ['Acc X', 'Acc Y', 'Acc Z']
     colors = ['r', 'g', 'b']
     
     plt.figure(figsize=(10, 8))
     results = []
 
     for i in range(3):
-        gyro_data = data[:, i] # 单位: deg/s
-        taus, adev = simple_allan_variance(gyro_data, FS)
+        acc_data = data[:, i]  # 单位: ug
+        taus, adev = simple_allan_variance(acc_data, FS)
         
         if len(taus) == 0: continue
 
-        adev_h = adev * 3600.0 # 转换 y轴单位: deg/s -> deg/h
-        
-        plt.loglog(taus, adev_h, label=titles[i], color=colors[i])
+        plt.loglog(taus, adev, label=titles[i], color=colors[i])
         
         # 拟合参数
-        # 1. ARW (角度随机游走): 斜率 -0.5, 取 tau=1 附近
+        # 1. VRW (速度随机游走): 斜率 -0.5, 取 tau=1 附近
         idx_1s = np.abs(taus - 1.0).argmin()
-        arw_val = adev_h[idx_1s] / 60.0 # deg/h -> deg/sqrt(h)
+        vrw_val = adev[idx_1s]  # ug at tau=1s
+        # VRW 单位转换: ug -> ug/sqrt(Hz) = ug * sqrt(tau) at tau=1
+        vrw_ugpsqrtHz = vrw_val
         
         # 2. Bias Instability: 曲线底部最小值
-        min_adev = np.min(adev_h)
+        min_adev = np.min(adev)
         
-        results.append({'axis': titles[i], 'arw': arw_val, 'bias_inst': min_adev})
+        results.append({'axis': titles[i], 'vrw': vrw_ugpsqrtHz, 'bias_inst': min_adev})
 
     plt.grid(True, which="both", ls="-", color='0.65')
-    plt.title(f'Allan Deviation - {os.path.basename(FILE_PATH)}')
+    plt.title(f'Accelerometer Allan Deviation - {os.path.basename(FILE_PATH)}')
     plt.xlabel('Tau (s)')
-    plt.ylabel('Allan Deviation (deg/h)')
+    plt.ylabel('Allan Deviation (ug)')
     plt.legend()
     
     print("\n" + "="*60)
-    print(" >>> AUTOMATIC PARAMETER SUGGESTION <<<")
+    print(" >>> ACCELEROMETER PARAMETER SUMMARY <<<")
     print("="*60)
     
-    avg_arw = np.mean([r['arw'] for r in results])
+    avg_vrw = np.mean([r['vrw'] for r in results])
     avg_bi = np.mean([r['bias_inst'] for r in results])
     
-    print(f"{'Axis':<10} | {'ARW (deg/sqrt(h))':<20} | {'Bias Instability (deg/h)':<25}")
+    print(f"{'Axis':<10} | {'VRW (ug/sqrt(Hz))':<20} | {'Bias Instability (ug)':<25}")
     print("-" * 60)
     for r in results:
-        print(f"{r['axis']:<10} | {r['arw']:.6f}{'':<12} | {r['bias_inst']:.6f}")
+        print(f"{r['axis']:<10} | {r['vrw']:.2f}{'':<16} | {r['bias_inst']:.2f}")
     print("-" * 60)
+    print(f"{'Average':<10} | {avg_vrw:.2f}{'':<16} | {avg_bi:.2f}")
     
-    print(f"\n[Recommendation for C++ Config]")
-    print(f"1. cfg.web_psd (ARW) [Use Avg ARW]:")
-    print(f"   Value = {avg_arw:.6f} * glv.deg / sqrt(3600.0);")
-    print(f"\n2. cfg.eb_sigma (P0) [Use 10x Bias Instability]:")
-    print(f"   Value = {avg_bi*10:.6f} * glv.deg / 3600.0;")
+    print(f"\n[Reference: Accelerometer Grade]")
+    print(f"  Navigation grade: VRW < 10 ug/sqrt(Hz), BI < 10 ug")
+    print(f"  Tactical grade:   VRW < 100 ug/sqrt(Hz), BI < 100 ug")
+    print(f"  Consumer grade:   VRW > 100 ug/sqrt(Hz), BI > 100 ug")
+    
+    print(f"\n[Your Accelerometer]")
+    if avg_vrw < 10 and avg_bi < 10:
+        print(f"  Grade: Navigation (excellent)")
+    elif avg_vrw < 100 and avg_bi < 100:
+        print(f"  Grade: Tactical (good)")
+    else:
+        print(f"  Grade: Consumer/Industrial")
 
-    output_img = "allan_plot.png"
+    output_img = "allan_acc_plot.png"
     plt.savefig(output_img)
-    print(f"\nPlot saved to '{output_img}'. Check this image for the curves!")
+    print(f"\nPlot saved to '{output_img}'")
 
 if __name__ == "__main__":
     main()
