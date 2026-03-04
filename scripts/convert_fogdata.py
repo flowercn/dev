@@ -3,8 +3,8 @@ import pandas as pd
 import numpy as np
 import os
 
-INPUT_MAT_FILE = '/home/v/桌面/Shared/CAI_FOG/fog3h.mat' 
-OUTPUT_CSV_FILE = '/home/v/dev/hybrid_ins_cpp/build/fog3h.csv'
+INPUT_MAT_FILE = '/home/v/桌面/Shared/CAI_FOG/fog30h.mat' 
+OUTPUT_CSV_FILE = '/home/v/dev/hybrid_ins_cpp/fog30h.csv'
 VAR_NAME = 'fog' 
 
 def convert():
